@@ -338,10 +338,9 @@ function renderMonth() {
 
   $('#report-title').textContent = `${y}년 ${m}월 법인카드 사용 내역`;
   $('#m-summary').innerHTML = `
-    <div><span>식대 사용</span><b>${won(mealSum)}</b></div>
-    <div><span>식대 한도</span><b>${won(mealMax)}</b></div>
-    <div class="taxi"><span>택시 합계</span><b>${won(taxiSum)}</b></div>
-    <div class="taxi"><span>택시 건수</span><b>${taxis.length}건</b></div>`;
+    <div class="total"><span>${m}월 법인카드 총 사용액 <small>(식대 + 택시)</small></span><b>${won(mealSum + taxiSum)}</b></div>
+    <div><span>식대</span><b>${won(mealSum)}</b></div>
+    <div class="taxi"><span>택시 <small>(${taxis.length}건)</small></span><b>${won(taxiSum)}</b></div>`;
 
   $('#meal-table').innerHTML = meals.length ? `
     <thead><tr><th>날짜</th><th>인원</th><th>이름</th><th class="num">사용</th><th class="num">한도</th><th>결제 내역</th></tr></thead>

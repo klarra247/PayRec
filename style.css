@@ -277,3 +277,11 @@ td.detail small { color: var(--muted); }
 .cal-legend { display: flex; gap: 14px; justify-content: flex-end; font-size: 12px; color: var(--muted); margin-top: 6px; }
 .cal-legend span { display: inline-flex; align-items: center; gap: 4px; }
 .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: var(--primary-soft); border: 1px solid var(--line); }
+
+.stats div.total { grid-column: 1 / -1; background: var(--primary); color: #fff; }
+.stats div.total span, .stats div.total small { color: rgba(255, 255, 255, .85); }
+.stats div.total b { font-size: 22px; }
+@media print {
+  .stats div.total { grid-column: 1 / -1; background: #fff; color: #000; }
+  .stats div.total span, .stats div.total small { color: #444; }
+}
