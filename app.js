@@ -87,13 +87,16 @@ function suggestPeople(date) {
   return last ? last.people : db.people.filter(p => p.isDefault).map(p => p.name);
 }
 
+// 추천할 인원이 없으면(첫 사용 등) 현재 선택을 유지
 function selectSuggested() {
-  form.selected = new Set(suggestPeople($('#f-date').value || today()));
+  const names = suggestPeople($('#f-date').value || today());
+  if (names.length) form.selected = new Set(names);
 }
 
 function resetForm(keepDate) {
   form.editingId = null;
   if (!keepDate) $('#f-date').value = today();
+  form.selected = new Set();
   selectSuggested();
   $('#f-amount').value = '';
   $('#f-memo').value = '';
@@ -246,7 +249,48 @@ function recordItem(r) {
   </li>`;
 }
 
+// ---------- 달력 ----------
+const cal = { month: null, lastSel: null };
+
+function renderCalendar() {
+  const sel = $('#f-date').value || today();
+  if (sel !== cal.lastSel) { cal.month = sel.slice(0, 7); cal.lastSel = sel; }
+  const [y, m] = cal.month.split('-').map(Number);
+  const first = new Date(y, m - 1, 1).getDay();
+  const lastDay = new Date(y, m, 0).getDate();
+  const marks = {};
+  db.records.forEach(r => { if (r.date.startsWith(cal.month)) (marks[r.date] = marks[r.date] || new Set()).add(r.type); });
+  const t = today();
+  const cells = Array(first).fill('<span></span>');
+  for (let d = 1; d <= lastDay; d++) {
+    const date = `${cal.month}-${pad(d)}`;
+    const mk = marks[date];
+    const cls = ['day', mk && 'has', date === sel && 'sel', date === t && 'today',
+      (first + d - 1) % 7 === 0 && 'sun', (first + d - 1) % 7 === 6 && 'sat'].filter(Boolean).join(' ');
+    cells.push(`<button type="button" class="${cls}" data-date="${date}">${d}<span class="dots">${
+      mk ? (mk.has('meal') ? '<i class="dot meal"></i>' : '') + (mk.has('taxi') ? '<i class="dot taxi"></i>' : '') : ''}</span></button>`);
+  }
+  $('#calendar').innerHTML = `
+    <div class="cal-head">
+      <button type="button" class="cal-nav" data-nav="-1" aria-label="이전 달">‹</button>
+      <b>${y}년 ${m}월</b>
+      <button type="button" class="cal-nav" data-nav="1" aria-label="다음 달">›</button>
+      <button type="button" class="link cal-today" data-date="${t}">오늘</button>
+    </div>
+    <div class="cal-grid">${WEEK.map((w, i) => `<span class="wk${i === 0 ? ' sun' : i === 6 ? ' sat' : ''}">${w}</span>`).join('')}${cells.join('')}</div>
+    <div class="cal-legend"><span><i class="dot meal"></i>식대</span><span><i class="dot taxi"></i>택시</span><span><i class="swatch"></i>입력한 날</span></div>`;
+  $('#sel-date').textContent = dateLabel(sel);
+}
+
+function onDateChange() {
+  if (!form.editingId) selectSuggested();
+  renderChips();
+  renderBalance();
+  renderDay();
+}
+
 function renderDay() {
+  renderCalendar();
   const date = $('#f-date').value || today();
   const recs = db.records.filter(r => r.date === date).sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
   $('#day-title').textContent = `${dateLabel(date)} 기록`;
@@ -291,24 +335,20 @@ function renderMonth() {
   const mealSum = byDate.reduce((s, d) => s + d.sum, 0);
   const mealMax = byDate.reduce((s, d) => s + d.max, 0);
   const taxiSum = taxis.reduce((s, r) => s + r.amount, 0);
-  const days = byDate.length;
 
   $('#report-title').textContent = `${y}년 ${m}월 법인카드 사용 내역`;
   $('#m-summary').innerHTML = `
     <div><span>식대 사용</span><b>${won(mealSum)}</b></div>
     <div><span>식대 한도</span><b>${won(mealMax)}</b></div>
-    <div><span>식대 잔액</span><b>${won(mealMax - mealSum)}</b></div>
-    <div><span>식대 건수/일수</span><b>${meals.length}건 / ${days}일</b></div>
     <div class="taxi"><span>택시 합계</span><b>${won(taxiSum)}</b></div>
     <div class="taxi"><span>택시 건수</span><b>${taxis.length}건</b></div>`;
 
   $('#meal-table').innerHTML = meals.length ? `
-    <thead><tr><th>날짜</th><th>인원</th><th>이름</th><th class="num">사용</th><th class="num">한도</th><th class="num">잔액</th><th>결제 내역</th></tr></thead>
+    <thead><tr><th>날짜</th><th>인원</th><th>이름</th><th class="num">사용</th><th class="num">한도</th><th>결제 내역</th></tr></thead>
     <tbody>${byDate.map(d => `<tr><td>${dateLabel(d.date)}</td><td>${d.people.length}</td><td>${d.people.map(esc).join(', ')}</td>
-        <td class="num">${won(d.sum)}</td><td class="num">${won(d.max)}</td>
-        <td class="num${d.max - d.sum < 0 ? ' neg' : ''}">${won(d.max - d.sum)}</td>
+        <td class="num${d.sum > d.max ? ' neg' : ''}">${won(d.sum)}</td><td class="num">${won(d.max)}</td>
         <td class="detail">${d.list.map(r => `${esc(r.memo || '(메모 없음)')} ${won(r.amount)}${r.people.length !== d.people.length ? ` <small>(${r.people.map(esc).join(', ')})</small>` : ''}`).join('<br>')}</td></tr>`).join('')}</tbody>
-    <tfoot><tr><td colspan="3">합계</td><td class="num">${won(mealSum)}</td><td class="num">${won(mealMax)}</td><td class="num">${won(mealMax - mealSum)}</td><td></td></tr></tfoot>`
+    <tfoot><tr><td colspan="3">합계</td><td class="num">${won(mealSum)}</td><td class="num">${won(mealMax)}</td><td></td></tr></tfoot>`
     : '<tbody><tr><td class="empty">기록 없음</td></tr></tbody>';
 
   $('#taxi-table').innerHTML = taxis.length ? `
@@ -351,10 +391,10 @@ function exportCsv() {
   const recs = monthRecords(month);
   if (!recs.length) return toast('해당 월 기록이 없습니다.');
   const meals = recs.filter(r => r.type === 'meal');
-  const lines = [['[일자별 식대 집계]'], ['날짜', '인원수', '이름', '사용금액', '한도', '잔액', '결제건수']];
+  const lines = [['[일자별 식대 집계]'], ['날짜', '인원수', '이름', '사용금액', '한도', '결제건수']];
   mealsByDate(meals).forEach(([date, list]) => {
     const d = dayTotals(list);
-    lines.push([date, d.people.length, d.people.join(', '), d.sum, d.max, d.max - d.sum, list.length]);
+    lines.push([date, d.people.length, d.people.join(', '), d.sum, d.max, list.length]);
   });
   lines.push([], ['[결제 건별 내역]'], ['구분', '날짜', '인원수', '이름', '사용금액', '메모']);
   meals.forEach(r => lines.push(['식대', r.date, r.people.length, r.people.join(', '), r.amount, r.memo]));
@@ -490,7 +530,17 @@ function bind() {
   });
 
   $('#f-amount').addEventListener('input', e => { formatAmountInput(e.target); renderBalance(); });
-  $('#f-date').addEventListener('change', () => { if (!form.editingId) selectSuggested(); renderChips(); renderBalance(); renderDay(); });
+  $('#calendar').addEventListener('click', e => {
+    const nav = e.target.closest('[data-nav]');
+    if (nav) {
+      const [y, m] = cal.month.split('-').map(Number);
+      const d = new Date(y, m - 1 + Number(nav.dataset.nav), 1);
+      cal.month = `${d.getFullYear()}-${pad(d.getMonth() + 1)}`;
+      return renderCalendar();
+    }
+    const day = e.target.closest('[data-date]');
+    if (day) { $('#f-date').value = day.dataset.date; cal.month = day.dataset.date.slice(0, 7); onDateChange(); }
+  });
   $('#entry-form').addEventListener('submit', saveRecord);
   $('#cancel-edit').addEventListener('click', () => { resetForm(true); renderAll(); });
 

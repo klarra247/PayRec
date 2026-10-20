@@ -26,17 +26,16 @@
     <!-- 입력 -->
     <section id="tab-entry" class="panel active">
       <form id="entry-form" class="card" autocomplete="off">
-        <div class="row">
-          <label class="field grow">
-            <span>날짜</span>
-            <input type="date" id="f-date" required>
-          </label>
-          <div class="field">
-            <span>구분</span>
-            <div class="seg" id="f-type">
-              <button type="button" data-type="meal" class="on">식대</button>
-              <button type="button" data-type="taxi">택시</button>
-            </div>
+        <div class="field">
+          <div id="calendar" class="cal"></div>
+          <input type="hidden" id="f-date">
+        </div>
+
+        <div class="row type-row">
+          <b id="sel-date" class="grow"></b>
+          <div class="seg" id="f-type">
+            <button type="button" data-type="meal" class="on">식대</button>
+            <button type="button" data-type="taxi">택시</button>
           </div>
         </div>
 
