@@ -79,10 +79,22 @@ const form = {
   editingId: null,
 };
 
+// 새 기록의 기본 인원: 해당 날짜의 마지막 식대 기록 → 그 이전 가장 최근 식대 기록 → "기본" 지정 인원
+function suggestPeople(date) {
+  const meals = db.records.filter(r => r.type === 'meal' && r.date <= date)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+  const last = meals[meals.length - 1];
+  return last ? last.people : db.people.filter(p => p.isDefault).map(p => p.name);
+}
+
+function selectSuggested() {
+  form.selected = new Set(suggestPeople($('#f-date').value || today()));
+}
+
 function resetForm(keepDate) {
   form.editingId = null;
-  form.selected = new Set(db.people.filter(p => p.isDefault).map(p => p.name));
   if (!keepDate) $('#f-date').value = today();
+  selectSuggested();
   $('#f-amount').value = '';
   $('#f-memo').value = '';
   $('#save').textContent = '저장';
@@ -478,7 +490,7 @@ function bind() {
   });
 
   $('#f-amount').addEventListener('input', e => { formatAmountInput(e.target); renderBalance(); });
-  $('#f-date').addEventListener('change', () => { renderChips(); renderBalance(); renderDay(); });
+  $('#f-date').addEventListener('change', () => { if (!form.editingId) selectSuggested(); renderChips(); renderBalance(); renderDay(); });
   $('#entry-form').addEventListener('submit', saveRecord);
   $('#cancel-edit').addEventListener('click', () => { resetForm(true); renderAll(); });
 
@@ -553,6 +565,7 @@ function refreshDate() {
   if (document.visibilityState !== 'visible' || today() === openedOn) return;
   if (!form.editingId && $('#f-date').value === openedOn) {
     $('#f-date').value = today();
+    selectSuggested();
     renderChips();
     renderBalance();
     renderDay();
