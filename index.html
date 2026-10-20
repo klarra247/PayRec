@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f6feb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="PayRec">
+  <title>PayRec 법인카드 기록</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>PayRec</h1>
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="entry" role="tab">입력</button>
+      <button class="tab" data-tab="month" role="tab">월별 내역</button>
+      <button class="tab" data-tab="settings" role="tab">설정</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 입력 -->
+    <section id="tab-entry" class="panel active">
+      <form id="entry-form" class="card" autocomplete="off">
+        <div class="row">
+          <label class="field grow">
+            <span>날짜</span>
+            <input type="date" id="f-date" required>
+          </label>
+          <div class="field">
+            <span>구분</span>
+            <div class="seg" id="f-type">
+              <button type="button" data-type="meal" class="on">식대</button>
+              <button type="button" data-type="taxi">택시</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="meal-fields">
+          <div class="field">
+            <span>인원 선택 <small id="sel-count"></small></span>
+            <div id="people-chips" class="chips"></div>
+            <div class="row add-person">
+              <input type="text" id="new-person" placeholder="이름 추가" maxlength="20">
+              <button type="button" id="add-person" class="btn">추가</button>
+            </div>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>결제 금액</span>
+          <div class="amount-wrap">
+            <input type="text" id="f-amount" inputmode="numeric" placeholder="0" required>
+            <span class="unit">원</span>
+          </div>
+        </label>
+
+        <div id="balance" class="balance"></div>
+
+        <label class="field">
+          <span>메모 <small>(가게명, 택시 출발→도착 등)</small></span>
+          <input type="text" id="f-memo" maxlength="60">
+        </label>
+
+        <details class="paste">
+          <summary>결제 알림 문자 붙여넣기로 자동 입력</summary>
+          <textarea id="paste-text" rows="3" placeholder="예) [Web발신] OO카드 승인 64,000원 10/20 12:31 OO식당"></textarea>
+          <button type="button" id="paste-apply" class="btn">금액·날짜 인식</button>
+          <p id="paste-result" class="hint"></p>
+        </details>
+
+        <div class="row actions">
+          <button type="button" id="cancel-edit" class="btn ghost" hidden>수정 취소</button>
+          <button type="submit" id="save" class="btn primary grow">저장</button>
+        </div>
+      </form>
+
+      <div class="card">
+        <h2 id="day-title">오늘 기록</h2>
+        <div id="day-summary" class="summary"></div>
+        <ul id="day-list" class="records"></ul>
+      </div>
+    </section>
+
+    <!-- 월별 -->
+    <section id="tab-month" class="panel">
+      <div class="card no-print">
+        <div class="row">
+          <label class="field grow">
+            <span>조회 월</span>
+            <input type="month" id="m-month">
+          </label>
+        </div>
+        <div class="row actions">
+          <button type="button" id="export-csv" class="btn">CSV(엑셀) 저장</button>
+          <button type="button" id="print" class="btn">인쇄 / PDF</button>
+        </div>
+      </div>
+
+      <div id="report" class="card report">
+        <h2 id="report-title"></h2>
+        <div id="m-summary" class="stats"></div>
+
+        <h3>식대 내역</h3>
+        <div class="table-wrap"><table id="meal-table"></table></div>
+
+        <h3>택시 내역 <small>(식대와 별도)</small></h3>
+        <div class="table-wrap"><table id="taxi-table"></table></div>
+
+        <h3>인원별 집계</h3>
+        <div class="table-wrap"><table id="people-table"></table></div>
+      </div>
+    </section>
+
+    <!-- 설정 -->
+    <section id="tab-settings" class="panel">
+      <div class="card">
+        <h2>기본 설정</h2>
+        <label class="field">
+          <span>1인당 일 한도</span>
+          <div class="amount-wrap">
+            <input type="text" id="s-limit" inputmode="numeric">
+            <span class="unit">원</span>
+          </div>
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>인원 관리</h2>
+        <p class="hint">"기본" 체크한 인원은 새 기록 작성 시 자동 선택됩니다(본인 등).</p>
+        <ul id="people-admin" class="people-admin"></ul>
+      </div>
+
+      <div class="card">
+        <h2>데이터 백업</h2>
+        <p class="hint">데이터는 이 기기의 브라우저에 저장됩니다. 브라우저 데이터 삭제·기기 변경 시 사라질 수 있으므로 월 1회 이상 백업 파일을 저장하십시오.</p>
+        <p id="backup-status" class="hint"></p>
+        <div class="row actions">
+          <button type="button" id="backup" class="btn primary">백업 파일 저장</button>
+          <label class="btn">
+            백업 불러오기
+            <input type="file" id="restore" accept="application/json,.json" hidden>
+          </label>
+        </div>
+        <p id="persist-status" class="hint"></p>
+      </div>
+
+      <div class="card">
+        <h2>결제 알림 자동 연동 (선택)</h2>
+        <p class="hint">아래 주소 형식으로 앱을 열면 값이 자동 입력됩니다. 안드로이드 자동화 앱이나 iOS 단축어에서 활용할 수 있습니다.</p>
+        <code id="url-example" class="code"></code>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
