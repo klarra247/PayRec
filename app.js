@@ -102,14 +102,35 @@ function sortedPeople() {
     (b.isDefault - a.isDefault) || (b.uses - a.uses) || a.name.localeCompare(b.name, 'ko'));
 }
 
+// 해당 날짜의 인원별 식대 사용액. 결제 1건은 포함 인원에게 균등 배분한다.
+function dayUsage(date, excludeId) {
+  const used = {};
+  db.records
+    .filter(r => r.type === 'meal' && r.date === date && r.id !== excludeId)
+    .forEach(r => r.people.forEach(n => { used[n] = (used[n] || 0) + r.amount / r.people.length; }));
+  return used;
+}
+
+// 선택 인원의 당일 남은 한도 합계 (이미 다른 결제에 쓴 몫 차감)
+function availableFor(names, date, excludeId) {
+  const used = dayUsage(date, excludeId);
+  const usedSum = names.reduce((s, n) => s + Math.min(used[n] || 0, db.perPerson), 0);
+  return { max: names.length * db.perPerson - usedSum, usedSum };
+}
+
 function renderChips() {
   const box = $('#people-chips');
   const people = sortedPeople();
+  const used = dayUsage($('#f-date').value, form.editingId);
   // 수정 중인 기록에 목록에서 삭제된 이름이 있으면 함께 표시
   const names = people.map(p => p.name);
   form.selected.forEach(n => { if (!names.includes(n)) names.push(n); });
   box.innerHTML = names.length
-    ? names.map(n => `<button type="button" class="chip${form.selected.has(n) ? ' on' : ''}" data-name="${esc(n)}">${esc(n)}</button>`).join('')
+    ? names.map(n => {
+        const left = Math.round(db.perPerson - (used[n] || 0));
+        const badge = used[n] ? `<small class="left${left <= 0 ? ' zero' : ''}">${left > 0 ? left.toLocaleString('ko-KR') : '소진'}</small>` : '';
+        return `<button type="button" class="chip${form.selected.has(n) ? ' on' : ''}" data-name="${esc(n)}">${esc(n)}${badge}</button>`;
+      }).join('')
     : '<p class="hint">아래에서 이름을 추가하십시오.</p>';
   $('#sel-count').textContent = form.selected.size ? `${form.selected.size}명 선택` : '';
 }
@@ -123,13 +144,13 @@ function renderBalance() {
     return;
   }
   const n = form.selected.size;
-  const max = n * db.perPerson;
+  const { max, usedSum } = availableFor([...form.selected], $('#f-date').value, form.editingId);
   const remain = max - amount;
   el.className = 'balance' + (remain < 0 ? ' over' : '');
   el.innerHTML = `
-    <div><span>한도</span><b>${won(max)}</b><small>${n}명 × ${won(db.perPerson)}</small></div>
-    <div><span>사용</span><b>${won(amount)}</b></div>
-    <div><span>${remain < 0 ? '초과' : '잔액'}</span><b>${won(Math.abs(remain))}</b></div>`;
+    <div><span>사용 가능</span><b>${won(max)}</b><small>${n}명 × ${won(db.perPerson)}${usedSum ? ` − 오늘 사용 ${won(Math.round(usedSum))}` : ''}</small></div>
+    <div><span>이번 결제</span><b>${won(amount)}</b></div>
+    <div><span>${remain < 0 ? '초과' : '잔액'}</span><b>${won(Math.abs(Math.round(remain)))}</b></div>`;
 }
 
 function addPerson(name) {
@@ -154,8 +175,11 @@ function saveRecord(e) {
   if (!amount) return toast('금액을 입력하십시오.');
   const people = form.type === 'meal' ? [...form.selected] : [];
   if (form.type === 'meal' && !people.length) return toast('인원을 1명 이상 선택하십시오.');
-  if (form.type === 'meal' && amount > people.length * db.perPerson &&
-      !confirm(`한도(${won(people.length * db.perPerson)})를 초과합니다. 그대로 저장하시겠습니까?`)) return;
+  if (form.type === 'meal') {
+    const { max } = availableFor(people, date, form.editingId);
+    if (amount > max + 0.5 &&
+        !confirm(`당일 남은 한도(${won(Math.round(max))})를 초과합니다. 그대로 저장하시겠습니까?`)) return;
+  }
 
   const now = new Date().toISOString();
   if (form.editingId) {
@@ -202,13 +226,11 @@ function deleteRecord(id) {
 
 function recordItem(r) {
   const isMeal = r.type === 'meal';
-  const max = r.people.length * db.perPerson;
-  const remain = max - r.amount;
   return `<li class="rec ${r.type}${form.editingId === r.id ? ' editing' : ''}">
     <div class="rec-main">
       <span class="tag ${r.type}">${isMeal ? '식대' : '택시'}</span>
       <b>${won(r.amount)}</b>
-      ${isMeal ? `<small class="${remain < 0 ? 'neg' : ''}">${remain < 0 ? '초과' : '잔액'} ${won(Math.abs(remain))} / 한도 ${won(max)}</small>` : ''}
+      ${isMeal ? `<small>1인 ${won(Math.round(r.amount / r.people.length))}</small>` : ''}
     </div>
     ${isMeal ? `<div class="rec-people">${r.people.map(esc).join(', ')} (${r.people.length}명)</div>` : ''}
     ${r.memo ? `<div class="rec-memo">${esc(r.memo)}</div>` : ''}
@@ -225,23 +247,33 @@ function renderDay() {
   $('#day-title').textContent = `${dateLabel(date)} 기록`;
   const meals = recs.filter(r => r.type === 'meal');
   const taxis = recs.filter(r => r.type === 'taxi');
-  const mealSum = meals.reduce((s, r) => s + r.amount, 0);
-  const mealMax = meals.reduce((s, r) => s + r.people.length * db.perPerson, 0);
+  const day = dayTotals(meals);
   const taxiSum = taxis.reduce((s, r) => s + r.amount, 0);
-
-  // 같은 날 두 건 이상 식대에 포함된 인원 (1인 1일 한도 중복 가능성)
-  const count = {};
-  meals.forEach(r => r.people.forEach(n => { count[n] = (count[n] || 0) + 1; }));
-  const dup = Object.entries(count).filter(([, c]) => c > 1);
+  const used = dayUsage(date);
+  const over = Object.entries(used).filter(([, v]) => v > db.perPerson + 0.5);
 
   $('#day-summary').innerHTML = recs.length ? `
-    <div>식대 <b>${won(mealSum)}</b> / 한도 ${won(mealMax)}</div>
-    <div>택시 <b>${won(taxiSum)}</b></div>
-    ${dup.length ? `<div class="warn">중복 인원 확인: ${dup.map(([n, c]) => `${esc(n)}(${c}건)`).join(', ')}</div>` : ''}` : '';
+    ${meals.length ? `<div>식대 <b>${won(day.sum)}</b> / 한도 ${won(day.max)} (${day.people.length}명) · 잔액 <b>${won(day.max - day.sum)}</b></div>
+    <div class="per-person">${Object.entries(used).map(([n, v]) =>
+      `<span class="${v > db.perPerson + 0.5 ? 'neg' : ''}">${esc(n)} ${won(Math.round(v))}</span>`).join('')}</div>` : ''}
+    ${taxis.length ? `<div>택시 <b>${won(taxiSum)}</b> (별도)</div>` : ''}
+    ${over.length ? `<div class="warn">1인 한도 초과: ${over.map(([n]) => esc(n)).join(', ')}</div>` : ''}` : '';
   $('#day-list').innerHTML = recs.length ? recs.map(recordItem).join('') : '<li class="empty">기록이 없습니다.</li>';
 }
 
 // ---------- 월별 ----------
+// 하루 식대 결제들의 합계. 한도는 그날 포함된 인원(중복 제외) × 1인 한도.
+function dayTotals(meals) {
+  const people = [...new Set(meals.flatMap(r => r.people))];
+  return { people, sum: meals.reduce((s, r) => s + r.amount, 0), max: people.length * db.perPerson };
+}
+
+function mealsByDate(meals) {
+  const map = new Map();
+  meals.forEach(r => { if (!map.has(r.date)) map.set(r.date, []); map.get(r.date).push(r); });
+  return [...map.entries()];
+}
+
 function monthRecords(month) {
   return db.records.filter(r => r.date.startsWith(month))
     .sort((a, b) => a.date.localeCompare(b.date) || (a.createdAt || '').localeCompare(b.createdAt || ''));
@@ -254,10 +286,11 @@ function renderMonth() {
   const recs = monthRecords(month);
   const meals = recs.filter(r => r.type === 'meal');
   const taxis = recs.filter(r => r.type === 'taxi');
-  const mealSum = meals.reduce((s, r) => s + r.amount, 0);
-  const mealMax = meals.reduce((s, r) => s + r.people.length * db.perPerson, 0);
+  const byDate = mealsByDate(meals).map(([date, list]) => ({ date, list, ...dayTotals(list) }));
+  const mealSum = byDate.reduce((s, d) => s + d.sum, 0);
+  const mealMax = byDate.reduce((s, d) => s + d.max, 0);
   const taxiSum = taxis.reduce((s, r) => s + r.amount, 0);
-  const days = new Set(meals.map(r => r.date)).size;
+  const days = byDate.length;
 
   $('#report-title').textContent = `${y}년 ${m}월 법인카드 사용 내역`;
   $('#m-summary').innerHTML = `
@@ -269,13 +302,11 @@ function renderMonth() {
     <div class="taxi"><span>택시 건수</span><b>${taxis.length}건</b></div>`;
 
   $('#meal-table').innerHTML = meals.length ? `
-    <thead><tr><th>날짜</th><th>인원</th><th>이름</th><th class="num">사용</th><th class="num">한도</th><th class="num">잔액</th><th>메모</th></tr></thead>
-    <tbody>${meals.map(r => {
-      const max = r.people.length * db.perPerson;
-      return `<tr><td>${dateLabel(r.date)}</td><td>${r.people.length}</td><td>${r.people.map(esc).join(', ')}</td>
-        <td class="num">${won(r.amount)}</td><td class="num">${won(max)}</td>
-        <td class="num${max - r.amount < 0 ? ' neg' : ''}">${won(max - r.amount)}</td><td>${esc(r.memo)}</td></tr>`;
-    }).join('')}</tbody>
+    <thead><tr><th>날짜</th><th>인원</th><th>이름</th><th class="num">사용</th><th class="num">한도</th><th class="num">잔액</th><th>결제 내역</th></tr></thead>
+    <tbody>${byDate.map(d => `<tr><td>${dateLabel(d.date)}</td><td>${d.people.length}</td><td>${d.people.map(esc).join(', ')}</td>
+        <td class="num">${won(d.sum)}</td><td class="num">${won(d.max)}</td>
+        <td class="num${d.max - d.sum < 0 ? ' neg' : ''}">${won(d.max - d.sum)}</td>
+        <td class="detail">${d.list.map(r => `${esc(r.memo || '(메모 없음)')} ${won(r.amount)}${r.people.length !== d.people.length ? ` <small>(${r.people.map(esc).join(', ')})</small>` : ''}`).join('<br>')}</td></tr>`).join('')}</tbody>
     <tfoot><tr><td colspan="3">합계</td><td class="num">${won(mealSum)}</td><td class="num">${won(mealMax)}</td><td class="num">${won(mealMax - mealSum)}</td><td></td></tr></tfoot>`
     : '<tbody><tr><td class="empty">기록 없음</td></tr></tbody>';
 
@@ -319,14 +350,15 @@ function exportCsv() {
   const month = $('#m-month').value;
   const recs = monthRecords(month);
   if (!recs.length) return toast('해당 월 기록이 없습니다.');
-  const lines = [['구분', '날짜', '인원수', '이름', '사용금액', '한도', '잔액', '메모']];
-  recs.filter(r => r.type === 'meal').forEach(r => {
-    const max = r.people.length * db.perPerson;
-    lines.push(['식대', r.date, r.people.length, r.people.join(', '), r.amount, max, max - r.amount, r.memo]);
+  const meals = recs.filter(r => r.type === 'meal');
+  const lines = [['[일자별 식대 집계]'], ['날짜', '인원수', '이름', '사용금액', '한도', '잔액', '결제건수']];
+  mealsByDate(meals).forEach(([date, list]) => {
+    const d = dayTotals(list);
+    lines.push([date, d.people.length, d.people.join(', '), d.sum, d.max, d.max - d.sum, list.length]);
   });
-  recs.filter(r => r.type === 'taxi').forEach(r => {
-    lines.push(['택시', r.date, '', '', r.amount, '', '', r.memo]);
-  });
+  lines.push([], ['[결제 건별 내역]'], ['구분', '날짜', '인원수', '이름', '사용금액', '메모']);
+  meals.forEach(r => lines.push(['식대', r.date, r.people.length, r.people.join(', '), r.amount, r.memo]));
+  recs.filter(r => r.type === 'taxi').forEach(r => lines.push(['택시', r.date, '', '', r.amount, r.memo]));
   const csv = '﻿' + lines.map(l => l.map(csvCell).join(',')).join('\r\n');
   download(`payrec_${month}.csv`, csv, 'text/csv;charset=utf-8');
 }
@@ -400,6 +432,7 @@ function applyParsed(p) {
   if (p.date) $('#f-date').value = p.date;
   if (p.amount) $('#f-amount').value = p.amount.toLocaleString('ko-KR');
   if (p.memo && !$('#f-memo').value) $('#f-memo').value = p.memo;
+  renderChips();
   renderBalance();
   renderDay();
 }
@@ -453,7 +486,7 @@ function bind() {
   });
 
   $('#f-amount').addEventListener('input', e => { formatAmountInput(e.target); renderBalance(); });
-  $('#f-date').addEventListener('change', renderDay);
+  $('#f-date').addEventListener('change', () => { renderChips(); renderBalance(); renderDay(); });
   $('#entry-form').addEventListener('submit', saveRecord);
   $('#cancel-edit').addEventListener('click', () => { resetForm(true); renderAll(); });
 

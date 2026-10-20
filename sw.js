@@ -1,5 +1,5 @@
 // 오프라인 사용을 위한 캐시. 파일 변경 시 VERSION을 올린다.
-const VERSION = 'payrec-v1';
+const VERSION = 'payrec-v2';
 const ASSETS = ['./', 'index.html', 'app.js', 'style.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', e => {

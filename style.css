@@ -238,3 +238,10 @@ tfoot td { font-weight: 700; border-top: 2px solid var(--line); }
   .stats div { border: 1px solid var(--line); }
   .table-wrap { overflow: visible; }
 }
+
+.chip small.left { margin-left: 6px; font-size: 11px; opacity: .8; }
+.chip small.left.zero { color: var(--danger); opacity: 1; }
+.chip.on small.left.zero { color: #fff; }
+.summary .per-person { width: 100%; display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; color: var(--muted); }
+td.detail { min-width: 160px; }
+td.detail small { color: var(--muted); }
